@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaborative Whiteboard</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        .header {
+            background-color: #f0f0f0;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .room-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .room-id {
+            font-size: 14px;
+            color: #666;
+            background-color: #e0e0e0;
+            padding: 5px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .active-users {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .user-circle {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        
+        .toolbar {
+            background-color: #f0f0f0;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .tool-section {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 8px;
+            border-right: 1px solid #ddd;
+        }
+        
+        .tool-section:last-child {
+            border-right: none;
+        }
+        
+        .toolbar button {
+            padding: 8px 12px;
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .toolbar button:hover {
+            background-color: #e9e9e9;
+        }
+        
+        .toolbar button.active {
+            background-color: #ddd;
+        }
+        
+        .tool-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: white;
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1;
+            border-radius: 4px;
+            padding: 8px;
+        }
+        
+        .tool-dropdown:hover .dropdown-content {
+            display: block;
+        }
+        
+        .color-picker {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            max-width: 150px;
+        }
+        
+        .color-option {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            border: 2px solid #ddd;
+            cursor: pointer;
+        }
+        
+        .color-option.active {
+            border-color: #666;
+        }
+        
+        .size-picker {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            overflow: hidden;
+            background-color: white;
+        }
+        
+        #drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+        
+        .cursor {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            transform: translate(-50%, -50%);
+        }
+        
+        .cursor::after {
+            content: attr(data-name);
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        
+        /* Toast notification */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 16px;
+            position: fixed;
+            z-index: 1001;
+            left: 50%;
+            bottom: 30px;
+            transform: translateX(-50%);
+            font-size: 14px;
+        }
+        
+        #toast.show {
+            visibility: visible;
+            animation: fadein 0.5s, fadeout 0.5s 2.5s;
+        }
+        
+        @keyframes fadein {
+            from {bottom: 0; opacity: 0;}
+            to {bottom: 30px; opacity: 1;}
+        }
+        
+        @keyframes fadeout {
+            from {bottom: 30px; opacity: 1;}
+            to {bottom: 0; opacity: 0;}
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="room-info">
+            <h3>Collaborative Whiteboard</h3>
+            <div class="room-id" id="room-id-display" title="Click to copy">{{ room_id }}</div>
+        </div>
+        <div class="active-users" id="active-users">
+            <!-- User circles will be added dynamically -->
+        </div>
+    </div>
+    
+    <div class="toolbar">
+        <div class="tool-section">
+            <button id="pencil-btn" class="active" title="Pencil Tool">✏️ Pencil</button>
+            <button id="brush-btn" title="Brush Tool">🖌️ Brush</button>
+            <button id="highlighter-btn" title="Highlighter">🖊️ Highlighter</button>
+        </div>
+        
+        <div class="tool-section">
+            <button id="line-btn" title="Line Tool">📏 Line</button>
+            <button id="rect-btn" title="Rectangle Tool">⬜ Rectangle</button>
+            <button id="circle-btn" title="Circle Tool">⭕ Circle</button>
+            <button id="text-btn" title="Text Tool">T Text</button>
+        </div>
+        
+        <div class="tool-section">
+            <div class="tool-dropdown">
+                <button title="Color">🎨 Color</button>
+                <div class="dropdown-content">
+                    <div class="color-picker">
+                        <div class="color-option active" data-color="#000000" style="background-color: #000000;"></div>
+                        <div class="color-option" data-color="#ff0000" style="background-color: #ff0000;"></div>
+                        <div class="color-option" data-color="#00aa00" style="background-color: #00aa00;"></div>
+                        <div class="color-option" data-color="#0000ff" style="background-color: #0000ff;"></div>
+                        <div class="color-option" data-color="#ffaa00" style="background-color: #ffaa00;"></div>
+                        <div class="color-option" data-color="#ff00ff" style="background-color: #ff00ff;"></div>
+                        <div class="color-option" data-color="#00ffff" style="background-color: #00ffff;"></div>
+                        <div class="color-option" data-color="#ffffff" style="background-color: #ffffff;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="size-picker">
+                <span>Size:</span>
+                <input type="range" id="brush-size" min="1" max="50" value="5">
+                <span id="size-display">5px</span>
+            </div>
+        </div>
+        
+        <div class="tool-section">
+            <button id="eraser-btn" title="Eraser Tool">🧽 Eraser</button>
+            <button id="clear-btn" title="Clear Canvas">🗑️ Clear All</button>
+        </div>
+        
+        <div class="tool-section">
+            <button id="undo-btn" title="Undo">↩️ Undo</button>
+            <button id="redo-btn" title="Redo">↪️ Redo</button>
+            <button id="save-btn" title="Save Image">💾 Save</button>
+        </div>
+    </div>
+    
+    <div id="canvas-container">
+        <canvas id="drawing-canvas"></canvas>
+        <!-- Cursors will be added here dynamically -->
+    </div>
+    
+    <div id="toast">Board ID copied to clipboard!</div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Canvas setup
+            const canvas = document.getElementById('drawing-canvas');
+            const ctx = canvas.getContext('2d');
+            const container = document.getElementById('canvas-container');
+            
+            // UI elements
+            const brushSizeInput = document.getElementById('brush-size');
+            const sizeDisplay = document.getElementById('size-display');
+            const eraserBtn = document.getElementById('eraser-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            const saveBtn = document.getElementById('save-btn');
+            const colorOptions = document.querySelectorAll('.color-option');
+            const roomIdDisplay = document.getElementById('room-id-display');
+            const activeUsersContainer = document.getElementById('active-users');
+            const toast = document.getElementById('toast');
+            
+            // Drawing tool buttons
+            const pencilBtn = document.getElementById('pencil-btn');
+            const brushBtn = document.getElementById('brush-btn');
+            const highlighterBtn = document.getElementById('highlighter-btn');
+            const lineBtn = document.getElementById('line-btn');
+            const rectBtn = document.getElementById('rect-btn');
+            const circleBtn = document.getElementById('circle-btn');
+            const textBtn = document.getElementById('text-btn');
+            const undoBtn = document.getElementById('undo-btn');
+            const redoBtn = document.getElementById('redo-btn');
+            
+            // Get room ID from URL
+            const roomId = window.location.pathname.split('/').pop();
+            
+            // Get or create user ID
+            let userId = localStorage.getItem('userId');
+            if (!userId) {
+                userId = Math.random().toString(36).substring(2, 15);
+                localStorage.setItem('userId', userId);
+            }
+            
+            // Connect to Socket.IO
+            const socket = io();
+            
+            // Join room
+            socket.emit('join', {
+                room: roomId,
+                userId: userId,
+                username: 'User_' + userId.substring(0, 4),
+                color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
+            });
+            
+            // Drawing state
+            let isDrawing = false;
+            let currentTool = 'pencil';
+            let currentColor = '#000000';
+            let currentSize = 5;
+            let isEraser = false;
+            
+            // For shape tools
+            let startX, startY;
+            let imageData;
+            
+            // Undo/redo history
+            const undoStack = [];
+            const redoStack = [];
+            
+            // Resize canvas to match container
+            function resizeCanvas() {
+                canvas.width = container.clientWidth;
+                canvas.height = container.clientHeight;
+                
+                // Redraw canvas content if needed
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+            }
+            
+            // Initialize canvas
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+            
+            // Save state for undo
+            function saveState() {
+                undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                redoStack.length = 0; // Clear redo stack when new action is performed
+            }
+            
+            // Undo last action
+            function undo() {
+                if (undoStack.length > 0) {
+                    redoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                    ctx.putImageData(undoStack.pop(), 0, 0);
+                    
+                    // Broadcast clear and redraw
+                    socket.emit('clear_canvas', { room: roomId });
+                    // We'd need to resend all drawing actions here
+                }
+            }
+            
+            // Redo last undone action
+            function redo() {
+                if (redoStack.length > 0) {
+                    undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                    ctx.putImageData(redoStack.pop(), 0, 0);
+                    
+                    // Broadcast clear and redraw
+                    socket.emit('clear_canvas', { room: roomId });
+                    // We'd need to resend all drawing actions here
+                }
+            }
+            
+            // Drawing functions
+            function startDrawing(e) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                saveState(); // Save state for undo
+                
+                if (currentTool === 'pencil' || currentTool === 'brush' || currentTool === 'highlighter' || isEraser) {
+                    isDrawing = true;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    draw(e); // For a single dot
+                    
+                    // Emit drawing start
+                    socket.emit('draw', {
+                        room: roomId,
+                        userId: userId,
+                        type: 'start',
+                        tool: isEraser ? 'eraser' : currentTool,
+                        x: x,
+                        y: y,
+                        color: isEraser ? '#FFFFFF' : currentColor,
+                        size: currentSize,
+                        opacity: currentTool === 'highlighter' ? 0.5 : 1
+                    });
+                } else if (currentTool === 'line' || currentTool === 'rect' || currentTool === 'circle') {
+                    startX = x;
+                    startY = y;
+                    isDrawing = true;
+                    
+                    // Save the current canvas state
+                    imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                } else if (currentTool === 'text') {
+                    const text = prompt('Enter text:');
+                    if (text) {
+                        ctx.font = `${currentSize * 2}px Arial`;
+                        ctx.fillStyle = currentColor;
+                        ctx.fillText(text, x, y);
+                        
+                        // Emit text
+                        socket.emit('draw', {
+                            room: roomId,
+                            userId: userId,
+                            type: 'text',
+                            x: x,
+                            y: y,
+                            text: text,
+                            color: currentColor,
+                            size: currentSize * 2
+                        });
+                    }
+                }
+            }
+            
+            function stopDrawing() {
+                if (!isDrawing) return;
+                
+                isDrawing = false;
+                ctx.beginPath(); // Reset the path
+                
+                // Emit drawing end
+                socket.emit('draw', {
+                    room: roomId,
+                    userId: userId,
+                    type: 'end'
+                });
+                
+                // Handle shape completion
+                if ((currentTool === 'line' || currentTool === 'rect' || currentTool === 'circle') && startX !== undefined) {
+                    // Send the complete shape to others
+                    socket.emit('draw', {
+                        room: roomId,
+                        userId: userId,
+                        type: 'shape',
+                        tool: currentTool,
+                        startX: startX,
+                        startY: startY,
+                        endX: lastX,
+                        endY: lastY,
+                        color: currentColor,
+                        size: currentSize
+                    });
+                    
+                    startX = undefined;
+                    startY = undefined;
+                }
+            }
+            
+            let lastX, lastY;
+            
+            function draw(e) {
+                if (!isDrawing) return;
+                
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                lastX = x;
+                lastY = y;
+                
+                if (currentTool === 'pencil' || currentTool === 'brush' || currentTool === 'highlighter' || isEraser) {
+                    ctx.lineWidth = currentSize;
+                    ctx.strokeStyle = isEraser ? '#FFFFFF' : currentColor;
+                    ctx.globalAlpha = currentTool === 'highlighter' ? 0.5 : 1;
+                    
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    
+                    // Emit drawing
+                    socket.emit('draw', {
+                        room: roomId,
+                        userId: userId,
+                        type: 'draw',
+                        tool: isEraser ? 'eraser' : currentTool,
+                        x: x,
+                        y: y,
+                        color: isEraser ? '#FFFFFF' : currentColor,
+                        size: currentSize,
+                        opacity: currentTool === 'highlighter' ? 0.5 : 1
+                    });
+                } else if (currentTool === 'line' || currentTool === 'rect' || currentTool === 'circle') {
+                    // Restore the saved state to clear previous preview
+                    ctx.putImageData(imageData, 0, 0);
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = currentColor;
+                    ctx.lineWidth = currentSize;
+                    ctx.globalAlpha = 1;
+                    
+                    if (currentTool === 'line') {
+                        ctx.moveTo(startX, startY);
+                        ctx.lineTo(x, y);
+                    } else if (currentTool === 'rect') {
+                        ctx.rect(startX, startY, x - startX, y - startY);
+                    } else if (currentTool === 'circle') {
+                        const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
+                        ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+                    }
+                    
+                    ctx.stroke();
+                }
+            }
+            
+            // Handle mouse events for drawing
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', function(e) {
+                draw(e);
+                
+                // Update cursor position
+                socket.emit('cursor_move', {
+                    room: roomId,
+                    userId: userId,
+                    x: e.clientX,
+                    y: e.clientY
+                });
+            });
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+            
+            // Handle touch events
+            function handleTouchStart(e) {
+                if (e.touches.length === 1) {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousedown', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    canvas.dispatchEvent(mouseEvent);
+                }
+            }
+            
+            function handleTouchMove(e) {
+                if (e.touches.length === 1) {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousemove', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    canvas.dispatchEvent(mouseEvent);
+                }
+            }
+            
+            function handleTouchEnd(e) {
+                e.preventDefault();
+                const mouseEvent = new MouseEvent('mouseup', {});
+                canvas.dispatchEvent(mouseEvent);
+            }
+            
+            canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+            canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+            
+            // Clear canvas
+            function clearCanvas() {
+                saveState(); // Save state before clearing
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Emit clear canvas
+                socket.emit('clear_canvas', { room: roomId });
+            }
+            
+            // Save canvas as image
+            function saveCanvas() {
+                const link = document.createElement('a');
+                link.download = 'whiteboard-' + roomId + '-' + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }
+            
+            // Tool selection
+            function selectTool(tool) {
+                // Reset all tool buttons
+                pencilBtn.classList.remove('active');
+                brushBtn.classList.remove('active');
+                highlighterBtn.classList.remove('active');
+                lineBtn.classList.remove('active');
+                rectBtn.classList.remove('active');
+                circleBtn.classList.remove('active');
+                textBtn.classList.remove('active');
+                eraserBtn.classList.remove('active');
+                
+                currentTool = tool;
+                isEraser = false;
+                
+                // Set active class on selected tool
+                if (tool === 'pencil') pencilBtn.classList.add('active');
+                else if (tool === 'brush') brushBtn.classList.add('active');
+                else if (tool === 'highlighter') highlighterBtn.classList.add('active');
+                else if (tool === 'line') lineBtn.classList.add('active');
+                else if (tool === 'rect') rectBtn.classList.add('active');
+                else if (tool === 'circle') circleBtn.classList.add('active');
+                else if (tool === 'text') textBtn.classList.add('active');
+            }
+            
+            // Toolbar event listeners
+            pencilBtn.addEventListener('click', () => selectTool('pencil'));
+            brushBtn.addEventListener('click', () => selectTool('brush'));
+            highlighterBtn.addEventListener('click', () => selectTool('highlighter'));
+            lineBtn.addEventListener('click', () => selectTool('line'));
+            rectBtn.addEventListener('click', () => selectTool('rect'));
+            circleBtn.addEventListener('click', () => selectTool('circle'));
+            textBtn.addEventListener('click', () => selectTool('text'));
+            
+            // Eraser
+            eraserBtn.addEventListener('click', function() {
+                isEraser = !isEraser;
+                eraserBtn.classList.toggle('active');
+                
+                if (isEraser) {
+                    // Deactivate all tool buttons
+                    pencilBtn.classList.remove('active');
+                    brushBtn.classList.remove('active');
+                    highlighterBtn.classList.remove('active');
+                    lineBtn.classList.remove('active');
+                    rectBtn.classList.remove('active');
+                    circleBtn.classList.remove('active');
+                    textBtn.classList.remove('active');
+                } else {
+                    // Reactivate pencil by default
+                    selectTool('pencil');
+                }
+            });
+            
+            // Update brush size
+            brushSizeInput.addEventListener('input', function() {
+                currentSize = parseInt(this.value);
+                sizeDisplay.textContent = `${currentSize}px`;
+            });
+            
+            // Color picker
+            document.querySelector('.color-picker').addEventListener('click', function(e) {
+                if (e.target.classList.contains('color-option')) {
+                    // Remove active class from all options
+                    colorOptions.forEach(option => option.classList.remove('active'));
+                    
+                    // Add active class to clicked option
+                    e.target.classList.add('active');
+                    
+                    // Set current color
+                    currentColor = e.target.getAttribute('data-color');
+                    
+                    // Deactivate eraser
+                    isEraser = false;
+                    eraserBtn.classList.remove('active');
+                }
+            });
+            
+            // Clear canvas button
+            clearBtn.addEventListener('click', clearCanvas);
+            
+            // Save canvas button
+            saveBtn.addEventListener('click', saveCanvas);
+            
+            // Undo/redo buttons
+            undoBtn.addEventListener('click', undo);
+            redoBtn.addEventListener('click', redo);
+            
+            // Room ID display (click to copy)
+            roomIdDisplay.addEventListener('click', function() {
+                navigator.clipboard.writeText(roomId).then(function() {
+                    // Show toast notification
+                    toast.className = "show";
+                    setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
+                });
+            });
+            
+            // Socket.IO event handlers
+            
+            // When a new user joins
+            socket.on('user_joined', function(data) {
+                console.log('User joined:', data);
+                
+                // Update active users
+                updateActiveUsers(data.activeUsers);
+                
+                // Add notification
+                if (data.userId !== userId) {
+                    const notification = document.createElement('div');
+                    notification.classList.add('notification');
+                    notification.textContent = `${data.username} joined`;
+                    notification.style.color = data.color;
+                    // Add notification to UI if needed
+                }
+            });
+            
+            // When a user leaves
+            socket.on('user_left', function(data) {
+                console.log('User left:', data);
+                
+                // Remove user cursor
+                const cursor = document.getElementById(`cursor-${data.userId}`);
+                if (cursor) cursor.remove();
+                
+                // Remove user from active users display
+                const userCircle = document.getElementById(`user-${data.userId}`);
+                if (userCircle) userCircle.remove();
+            });
+            
+            // Update the cursor position of another user
+            socket.on('cursor_update', function(data) {
+                let cursor = document.getElementById(`cursor-${data.userId}`);
+                
+                if (!cursor) {
+                    // Create cursor if it doesn't exist
+                    cursor = document.createElement('div');
+                    cursor.id = `cursor-${data.userId}`;
+                    cursor.className = 'cursor';
+                    
+                    // Get user info from active users
+                    const userCircle = document.getElementById(`user-${data.userId}`);
+                    if (userCircle) {
+                        const username = userCircle.getAttribute('data-name');
+                        const color = userCircle.style.backgroundColor;
+                        
+                        cursor.setAttribute('data-name', username);
+                        cursor.style.backgroundColor = color;
+                    }
+                    
+                    container.appendChild(cursor);
+                }
+                
+                // Update position
+                cursor.style.left = `${data.x}px`;
+                cursor.style.top = `${data.y}px`;
+            });
+            
+            // Handle drawing from other users
+            socket.on('draw', function(data) {
+                if (data.userId === userId) return; // Ignore our own drawing events
+                
+                if (data.type === 'start') {
+                    ctx.beginPath();
+                    ctx.moveTo(data.x, data.y);
+                    ctx.lineWidth = data.size;
+                    ctx.strokeStyle = data.color;
+                    ctx.globalAlpha = data.opacity || 1;
+                } else if (data.type === 'draw') {
+                    ctx.lineTo(data.x, data.y);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(data.x, data.y);
+                } else if (data.type === 'end') {
+                    ctx.beginPath();
+                } else if (data.type === 'shape') {
+                    ctx.beginPath();
+                    ctx.strokeStyle = data.color;
+                    ctx.lineWidth = data.size;
+                    ctx.globalAlpha = 1;
+                    
+                    if (data.tool === 'line') {
+                        ctx.moveTo(data.startX, data.startY);
+                        ctx.lineTo(data.endX, data.endY);
+                    } else if (data.tool === 'rect') {
+                        ctx.rect(data.startX, data.startY, data.endX - data.startX, data.endY - data.startY);
+                    } else if (data.tool === 'circle') {
+                        const radius = Math.sqrt(Math.pow(data.endX - data.startX, 2) + Math.pow(data.endY - data.startY, 2));
+                        ctx.arc(data.startX, data.startY, radius, 0, 2 * Math.PI);
+                    }
+                    
+                    ctx.stroke();
+                } else if (data.type === 'text') {
+                    ctx.font = `${data.size}px Arial`;
+                    ctx.fillStyle = data.color;
+                    ctx.fillText(data.text, data.x, data.y);
+                }
+            });
+            
+            // Handle clear canvas
+            socket.on('clear_canvas', function() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            });
+            
+            // Handle drawing history (when joining a room)
+            socket.on('drawing_history', function(history) {
+                for (const action of history) {
+                    if (action.type === 'clear_canvas') {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    } else {
+                        socket.emit('draw', action);
+                    }
+                }
+            });
+            
+            // Update the active users display
+            function updateActiveUsers(users) {
+                activeUsersContainer.innerHTML = '';
+                
+                for (const [id, user] of Object.entries(users)) {
+                    const userCircle = document.createElement('div');
+                    userCircle.id = `user-${id}`;
+                    userCircle.className = 'user-circle';
+                    userCircle.style.backgroundColor = user.color;
+                    userCircle.textContent = user.username.charAt(0).toUpperCase();
+                    userCircle.setAttribute('data-name', user.username);
+                    userCircle.title = user.username;
+                    
+                    activeUsersContainer.appendChild(userCircle);
+                }
+            }
+            
+                        // Window close or navigate away
+                        window.addEventListener('beforeunload', function() {
+                socket.emit('leave', {
+                    room: roomId,
+                    userId: userId
+                });
+            });
+        });
+    </script>
+</body>
+</html>
